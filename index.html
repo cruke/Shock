@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+content="width=device-width, initial-scale=1.0">
+
+<title>Shock Alert Telegram GPS System</title>
+
+<style>
+
+body{
+    margin:0;
+    background:#111;
+    color:white;
+    font-family:Arial;
+    text-align:center;
+    padding:20px;
+}
+
+button{
+    padding:18px 30px;
+    font-size:20px;
+    border:none;
+    border-radius:12px;
+    color:white;
+    cursor:pointer;
+    margin-top:20px;
+    transition:0.3s;
+}
+
+#startBtn{
+    background:#00c853;
+}
+
+.card{
+    background:#1e1e1e;
+    border-radius:15px;
+    padding:20px;
+    margin-top:20px;
+    font-size:20px;
+    line-height:1.8;
+}
+
+.blue{
+    color:#42a5f5;
+}
+
+.red{
+    color:#ff5252;
+}
+
+.green{
+    color:#00e676;
+}
+
+</style>
+</head>
+
+<body>
+
+<h2>Shock Detection + Telegram GPS Alert</h2>
+
+<button id="startBtn"
+onclick="startSystem()">
+START SYSTEM
+</button>
+
+<div class="card" id="status">
+✅ System Ready
+</div>
+
+<script>
+
+// TELEGRAM SETTINGS
+const BOT_TOKEN =
+"1293082267:AAGXC__pwWjUwbV1ReZIQ2NMLaIUkMY-RBs";
+
+const CHAT_ID =
+"44305665";
+
+// SHOCK SETTINGS
+const SHOCK_THRESHOLD = 25;
+
+let lastTrigger = 0;
+let systemStarted = false;
+
+function setReady(){
+
+    document.getElementById("status").innerHTML =
+    '<span class="green">✅ System Ready</span>';
+
+}
+
+function startSystem(){
+
+    if(systemStarted) return;
+
+    systemStarted = true;
+
+    // Change button
+    let btn =
+    document.getElementById("startBtn");
+
+    btn.innerHTML =
+    "SYSTEM STARTED";
+
+    btn.style.background =
+    "#ff1744";
+
+    document.getElementById("status").innerHTML =
+    "📡 Monitoring shock...";
+
+    // iPhone permission
+    if(typeof DeviceMotionEvent !== "undefined" &&
+       typeof DeviceMotionEvent.requestPermission === "function"){
+
+        DeviceMotionEvent.requestPermission()
+        .then(permissionState => {
+
+            if(permissionState === "granted"){
+
+                monitorShock();
+
+            }else{
+
+                alert("Motion permission denied");
+
+            }
+
+        });
+
+    }else{
+
+        monitorShock();
+
+    }
+
+}
+
+function monitorShock(){
+
+    window.addEventListener("devicemotion", function(event){
+
+        let x =
+        event.accelerationIncludingGravity.x || 0;
+
+        let y =
+        event.accelerationIncludingGravity.y || 0;
+
+        let z =
+        event.accelerationIncludingGravity.z || 0;
+
+        let total =
+        Math.sqrt(x*x + y*y + z*z);
+
+        if(total > SHOCK_THRESHOLD){
+
+            let now = Date.now();
+
+            // Anti spam
+            if(now - lastTrigger > 5000){
+
+                lastTrigger = now;
+
+                triggerAlert();
+
+            }
+
+        }
+
+    });
+
+}
+
+function triggerAlert(){
+
+    document.getElementById("status").innerHTML =
+    '<span class="red">💥 Shock Detected!</span>';
+
+    // Vibrate
+    if(navigator.vibrate){
+
+        navigator.vibrate([300,100,300]);
+
+    }
+
+    // Siren
+    playSiren();
+
+    // GPS
+    navigator.geolocation.getCurrentPosition(
+
+        function(position){
+
+            let lat =
+            position.coords.latitude;
+
+            let lon =
+            position.coords.longitude;
+
+            let accuracy =
+            position.coords.accuracy;
+
+            let maps =
+            "https://maps.google.com/?q=" +
+            lat + "," + lon;
+
+            // Text
+            let text =
+            "🚨 SHOCK DETECTED 🚨\n\n" +
+
+            "Latitude: " + lat + "\n" +
+            "Longitude: " + lon + "\n" +
+            "Accuracy: " + accuracy + "m\n\n" +
+
+            maps;
+
+            sendTelegram(text);
+
+            // Real Telegram map
+            sendTelegramLocation(lat, lon);
+
+            document.getElementById("status").innerHTML =
+            '<span class="blue">📨 Alert Sent to Telegram</span>';
+
+            // Return ready state
+            setTimeout(setReady, 3000);
+
+        },
+
+        function(error){
+
+            sendTelegram(
+            "🚨 Shock detected but GPS unavailable.");
+
+            setTimeout(setReady, 3000);
+
+        },
+
+        {
+            enableHighAccuracy:true
+        }
+
+    );
+
+}
+
+/////////////////////////////
+// TELEGRAM TEXT
+/////////////////////////////
+
+function sendTelegram(message){
+
+    let url =
+    "https://api.telegram.org/bot" +
+    BOT_TOKEN +
+    "/sendMessage";
+
+    fetch(url, {
+
+        method:"POST",
+
+        headers:{
+            "Content-Type":"application/json"
+        },
+
+        body:JSON.stringify({
+
+            chat_id:CHAT_ID,
+            text:message
+
+        })
+
+    });
+
+}
+
+/////////////////////////////
+// TELEGRAM LOCATION
+/////////////////////////////
+
+function sendTelegramLocation(lat, lon){
+
+    let url =
+    "https://api.telegram.org/bot" +
+    BOT_TOKEN +
+    "/sendLocation";
+
+    fetch(url, {
+
+        method:"POST",
+
+        headers:{
+            "Content-Type":"application/json"
+        },
+
+        body:JSON.stringify({
+
+            chat_id:CHAT_ID,
+            latitude:lat,
+            longitude:lon
+
+        })
+
+    });
+
+}
+
+/////////////////////////////
+// SIREN
+/////////////////////////////
+
+let audioCtx;
+let oscillator;
+let sirenInterval;
+
+function playSiren(){
+
+    if(audioCtx) return;
+
+    audioCtx =
+    new (window.AudioContext ||
+         window.webkitAudioContext)();
+
+    oscillator =
+    audioCtx.createOscillator();
+
+    let gainNode =
+    audioCtx.createGain();
+
+    oscillator.connect(gainNode);
+
+    gainNode.connect(audioCtx.destination);
+
+    gainNode.gain.value = 0.1;
+
+    oscillator.type = "sawtooth";
+
+    oscillator.start();
+
+    let high = false;
+
+    sirenInterval = setInterval(function(){
+
+        oscillator.frequency.setValueAtTime(
+
+            high ? 600 : 1200,
+
+            audioCtx.currentTime
+
+        );
+
+        high = !high;
+
+    },300);
+
+    // Stop after 5 sec
+    setTimeout(stopSiren,5000);
+
+}
+
+function stopSiren(){
+
+    if(oscillator){
+
+        oscillator.stop();
+
+        oscillator.disconnect();
+
+        clearInterval(sirenInterval);
+
+        oscillator = null;
+        audioCtx = null;
+
+    }
+
+}
+
+</script>
+
+</body>
+</html>
